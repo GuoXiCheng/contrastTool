@@ -1,65 +1,178 @@
-import xlrd, xlwt,openpyxl
+import xlrd, xlwt,openpyxl,datetime,re
 from openpyxl.styles import PatternFill
+from openpyxl.utils import get_column_letter
+from openpyxl import Workbook
 from xlutils.styles import Styles
 import math,os
 
-ORIGINAL_READROAD = "C:\\Users\\Administrator\\Desktop\\内部進捗（源文件）.xlsx";
-CONTRAST_READROAD = "C:\\Users\\Administrator\\Desktop\\内部進捗（目标文件）.xlsx";
-OUTPUTROAD = "";
-START_COL = ""
-END_COL = "DQ";
+SOURCE_READROAD = "C:\\Users\\Administrator\\Desktop\\内部進捗（源文件）.xlsx";
+TARGET_READROAD = "C:\\Users\\Administrator\\Desktop\\内部進捗（目标文件）.xlsx";
+OUTPUT_ROAD = "C:\\Users\\Administrator\\Desktop";
+SHEET_NAME = "進捗明細";
+START_ROW = 3;#从第几行开始遍历数据，起始位为0
+TRUE_COLOR = "FF92D14F";
+FALSE_COLOR = "FFFF0000";
 
+sourceBook = openpyxl.load_workbook(SOURCE_READROAD);
+sourceSheet = sourceBook[SHEET_NAME];
 
-loadWorkBook = openpyxl.load_workbook(ORIGINAL_READROAD);
-loadSheet = loadWorkBook["進捗明細"];
+targetBook = openpyxl.load_workbook(TARGET_READROAD);
+targetSheet = targetBook[SHEET_NAME];
 
-#输入第几列，返回其对应的英文序列号，col起始位为1
-def numToEn(col):
-    col = int(col);
-    enList = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U",
-              "V", "W", "X", "Y", "Z"];
-    if col <= 26:
-        return enList[col - 1];
-    elif col > 26 and col <= 702:
-        if(col == 702):
-            return "ZZ";
-        ex = enList[math.floor(col / 26) - 1];
-        remain = enList[col % 26 - 1];
-        return ex +remain;
-    elif col > 702:
-        ex_first = enList[math.floor(math.floor(col / 26) / 26) - 1];
-        ex_second = enList[math.floor(col / 26) % 26 - 1];
-        remain = enList[col % 26 - 1];
-        return ex_first + ex_second + remain;
-
+outBook = Workbook();
+outSheet = outBook["Sheet"];
+outSheet.title = "進捗明細";
+# outBook.save(OUTPUT_ROAD + "\\" + "内部進捗（对比报告）.xlsx");
 
 #遍历第三行，将单元格地址与背景色按键值对存储
 def cellColor():
     colList = [];
-    for col in range(len(tuple(loadSheet.columns))):
-        cellIndex = numToEn(col + 1) + "3";
+    for col in range(len(tuple(sourceSheet.columns))):
+        cellIndex = get_column_letter(col + 1) + "3";
         colList.append(cellIndex);
     colDict = dict.fromkeys(colList);
     for index in range(len(colList)):
-        colorIndex = loadSheet[colList[index]].fill.start_color.index;
+        colorIndex = sourceSheet[colList[index]].fill.start_color.index;
         if type(colorIndex) == type(1):
             colDict[colList[index]] = openpyxl.styles.colors.COLOR_INDEX[colorIndex];
         elif type(colorIndex) == type(""):
             colDict[colList[index]] = colorIndex;
     return colDict;
 
-print(cellColor());
+#根据单元格颜色的字典进行分类，每一组颜色相同的单元格为一组存储单元格地址
+def colNum():
+    # colList = list(cellColor().items());
+    colDict = cellColor();
+    colNumList = [];
+    temp = [];
+    for key in colDict:
+        if len(temp) == 0 or colDict[key] == "00000000" or colDict[key] == colDict[temp[0]]:
+            temp.append(key);
+        else:
+            colNumList.append(tuple(temp));
+            temp.clear();
+            temp.append(key);
+    return colNumList;
+
+#对单元格地址进行切片，取得相应的列号
+def getColList():
+    colNumList = colNum();
+    colList = [];
+    temp = [];
+    for i in range(len(colNumList)):
+        for j in range(len(colNumList[i])):
+            temp.append(((colNumList[i])[j])[0:-1]);
+        colList.append(tuple(temp));
+        temp.clear();
+    return colList;
+
+
+#对单元格地址进行遍历，判断单元格中的字段，取得单元格中为“実績”、“作業時間（H）”、“進捗率”的列号
+def getDataCol():
+    colNumList = getColList();
+    dataColList = [];
+    temp = [];
+    for colTup in colNumList:
+        for col in colTup:
+            if sourceSheet[col + "3"].value == "実績" or sourceSheet[col + "2"].value == "作業時間（H）" or sourceSheet[col + "2"].value == "進捗率":
+                temp.append(col);
+        dataColList.append(tuple(temp));
+        temp.clear();
+    return dataColList;
+
+#接受一个包含列号的元祖参数，将该列的所有数据读入列表中
+def getData(colTup,sheet):
+    dataList = [colTup];
+    temp = [];
+    for index in range(START_ROW,len(tuple(sheet.rows))):#从第四行开始遍历
+        for col in colTup:
+            temp.append(sheet[col + str(index + 1)].value);
+        dataList.append(tuple(temp));
+        temp.clear();
+    return dataList;
+
+#调试方式：换行打印列表
+def printList(list):
+    for param in list:
+        print(param);
+
+#传入两个数据列表，一个是源文件的，一个是目标文件的，进行比较后生成第三个列表
+def contrastData(oList,cList):
+    resultList = [oList[0]];
+    temp = [];
+    for i in range(1,len(oList)):
+        for j in range(len(oList[i])):
+            if (oList[i])[j] == (cList[i])[j]:
+                temp.append("true");
+            else:
+                temp.append("false");
+        resultList.append(tuple(temp));
+        temp.clear();
+    return resultList
+
+#根据结果列表去给目标文件标记颜色，并返回数据不同的行号
+def markTarget(rList):
+    trueFill = PatternFill(fill_type='solid', fgColor=TRUE_COLOR);
+    falseFill = PatternFill(fill_type='solid', fgColor=FALSE_COLOR);
+    colList = rList[0];
+    rList = rList[1:];
+    differRow = [];
+    for i in range(len(rList)):
+        for j in range(len(rList[i])):
+            if (rList[i])[j] == "true":
+                targetSheet[colList[j] + str(START_ROW + i + 1)].fill = trueFill;
+            elif (rList[i])[j] == "false":
+                targetSheet[colList[j] + str(START_ROW + i + 1)].fill = falseFill;
+                differRow.append(START_ROW + i + 1);
+    targetBook.save(TARGET_READROAD);
+    differRow = list((set(differRow)));
+    differRow.sort();
+    return differRow;
+
+#取得颜色相同的每一组数据的标题
+def getTitle():
+    colList = getColList()[1:];
+    titleList = [];
+    temp = [];
+    for cols in colList:
+        for col in cols:
+            cellValue = sourceSheet[col + "2"].value;
+            if cellValue != None and not "担当" in cellValue:
+                cellValue = ''.join(cellValue.split());
+                temp.append(cellValue);
+        titleList.append(tuple(temp));
+        temp.clear();
+    return titleList;
+
+#取得数据不同的行号，抽取数据写入一个新的excel
+def writeToXL(rowList,startRow):
+    title = getTitle()[0];
+    col = getDataCol()[1];
+    print(col);
+    print(rowList);
+    if len(rowList) != 0:
+        for i in range(len(title)):
+            titleIndex = get_column_letter(startRow + 2 + i) + "1";
+            outSheet[titleIndex] = title[i];
+        for j in range(len(col)):
+            handleNameIndex = get_column_letter(startRow) + str(j + 2);
+            titleNameIndex = get_column_letter(startRow + 1) + str(j + 2);
+            outSheet[handleNameIndex] = targetSheet["D" + str(rowList[j])].value;
+            outSheet[titleNameIndex] = "画面詳細設計";
+            for k in range(len(title)):
+                cellIndex = get_column_letter(startRow + 2 + k) + str(j + 2);
+                outSheet[cellIndex] = targetSheet[title[j] + str(rowList[k])].value;
 
 
 
+    outBook.save(OUTPUT_ROAD + "\\" + "内部進捗（对比报告）.xlsx");
 
 
-
-
-
-
-
-
+dataCol = getDataCol();
+oList = getData(dataCol[1],sourceSheet);
+cList = getData(dataCol[1],targetSheet);
+differRow = markTarget(contrastData(oList,cList));
+writeToXL(differRow,1);
 
 
 # originalBook = xlrd.open_workbook(ORIGINAL_READROAD);
@@ -107,6 +220,8 @@ print(cellColor());
 # loadWorkBook = openpyxl.load_workbook(ORIGINAL_READROAD);
 # loadSheet = loadWorkBook["進捗明細"];
 # fill = PatternFill(fill_type='solid',fgColor='FFFF0000');
+
+
 # print(list);
 # for i in range(len(list)):
 #     # print(EnList[((list[i])[1] - 1)] + str((list[i])[0]),end = "");
@@ -118,15 +233,6 @@ print(cellColor());
 
 # print(openpyxl.styles.colors.COLOR_INDEX[loadSheet["AC3"].fill.start_color.index])
 # print(loadSheet["P3"].fill.start_color.index)
-# enList = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U",
-#           "V", "W", "X", "Y", "Z"];
-# for index in range(49):
-#     print("第" + str(index + 1) + "列    ",end = "");
-#     c = numToEn(index+1)+"2";
-#     cx = loadSheet[c].fill.start_color.index;
-#     if type(cx) == type(1):
-#         print(openpyxl.styles.colors.COLOR_INDEX[cx]);
-#     elif type(cx) == type(""):
-#         print(cx);
+
 
 
