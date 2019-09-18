@@ -1,13 +1,20 @@
+import time
+import tkinter
+
 import xlrd, xlwt,openpyxl,datetime,re
-from openpyxl.styles import PatternFill
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill, numbers
+from openpyxl.utils import get_column_letter, column_index_from_string
 from openpyxl import Workbook
+from tkinter import filedialog
+from tkinter.filedialog import askdirectory
+from tkinter import *
+from tkinter import messagebox
 from xlutils.styles import Styles
 import math,os
 
-SOURCE_READROAD = "C:\\Users\\Administrator\\Desktop\\内部進捗（源文件）.xlsx";
-TARGET_READROAD = "C:\\Users\\Administrator\\Desktop\\内部進捗（目标文件）.xlsx";
-OUTPUT_ROAD = "C:\\Users\\Administrator\\Desktop";
+SOURCE_READROAD = "C:/Users/Administrator/Desktop/内部進捗（源文件）.xlsx";
+TARGET_READROAD = "C:/Users/Administrator/Desktop/内部進捗（目标文件）.xlsx";
+OUTPUT_ROAD = "C:/Users/Administrator/Desktop";
 SHEET_NAME = "進捗明細";
 START_ROW = 3;#从第几行开始遍历数据，起始位为0
 TRUE_COLOR = "FF92D14F";
@@ -68,17 +75,17 @@ def getColList():
 
 
 #对单元格地址进行遍历，判断单元格中的字段，取得单元格中为“実績”、“作業時間（H）”、“進捗率”的列号
-def getDataCol():
+def getContrastCol():
     colNumList = getColList();
-    dataColList = [];
+    contrastColList = [];
     temp = [];
     for colTup in colNumList:
         for col in colTup:
             if sourceSheet[col + "3"].value == "実績" or sourceSheet[col + "2"].value == "作業時間（H）" or sourceSheet[col + "2"].value == "進捗率":
                 temp.append(col);
-        dataColList.append(tuple(temp));
+        contrastColList.append(tuple(temp));
         temp.clear();
-    return dataColList;
+    return contrastColList;
 
 #接受一个包含列号的元祖参数，将该列的所有数据读入列表中
 def getData(colTup,sheet):
@@ -129,8 +136,8 @@ def markTarget(rList):
     differRow.sort();
     return differRow;
 
-#取得颜色相同的每一组数据的标题
-def getTitle():
+#传入一个列的元祖，返回该列所属的标题
+def getTitle(colTup):
     colList = getColList()[1:];
     titleList = [];
     temp = [];
@@ -142,37 +149,149 @@ def getTitle():
                 temp.append(cellValue);
         titleList.append(tuple(temp));
         temp.clear();
-    return titleList;
+    title = "";
+    for index in range(len(colList)):
+        if colList[index].__contains__(colTup[0]):
+            return titleList[index];
+    return None;
 
 #取得数据不同的行号，抽取数据写入一个新的excel
-def writeToXL(rowList,startRow):
-    title = getTitle()[0];
-    col = getDataCol()[1];
-    print(col);
-    print(rowList);
+def writeToXL(rowList,col,title,startRow):#抽出数据的行号；抽出数据的列号；抽出数据的标题；从第几行开始写入
+    # title = getTitle()[0];
+    # col = getContrastCol()[1];
+    # print(col);
+    # print(rowList);
     if len(rowList) != 0:
-        for i in range(len(title)):
-            titleIndex = get_column_letter(startRow + 2 + i) + "1";
-            outSheet[titleIndex] = title[i];
-        for j in range(len(col)):
-            handleNameIndex = get_column_letter(startRow) + str(j + 2);
-            titleNameIndex = get_column_letter(startRow + 1) + str(j + 2);
-            outSheet[handleNameIndex] = targetSheet["D" + str(rowList[j])].value;
-            outSheet[titleNameIndex] = "画面詳細設計";
-            for k in range(len(title)):
-                cellIndex = get_column_letter(startRow + 2 + k) + str(j + 2);
-                outSheet[cellIndex] = targetSheet[title[j] + str(rowList[k])].value;
+        for i in range(len(rowList)):#有几组不同数据就要循环几次
+            for j in range(len(title)):#首先循环写入标题
+                titleIndex = get_column_letter(3 + j) + str(i + i + 1 + startRow);
+                outSheet[titleIndex] = title[j];
+            handleNameIndex = "A" + str(i + i + 2 + startRow);
+            titleNameIndex = "B" + str(i + i + 2 + startRow);
+            outSheet[handleNameIndex] = targetSheet["D" + str(rowList[i])].value;
+            outSheet[titleNameIndex] = getObjectName(col[0]);
+            for k in range(len(col)):#再循环写入数据
+                dataIndex = get_column_letter(3 + k) + str( i + i + 2 + startRow);
+                cellValue = targetSheet[col[k] + str(rowList[i])].value;
+                if isinstance(cellValue,float) :
+                    outSheet[dataIndex].number_format = numbers.FORMAT_PERCENTAGE;
+                if isinstance(cellValue, datetime.datetime):
+                    # outSheet[dataIndex].number_format = numbers.FORMAT_DATE_DATETIME;
+                    time= str(cellValue).split("-");
+                    day = time[2].split(" ");
+                    outSheet[dataIndex] = time[0] +"/" + time[1] + "/" + day[0];
+                else:
+                    outSheet[dataIndex] = cellValue;
 
 
 
-    outBook.save(OUTPUT_ROAD + "\\" + "内部進捗（对比报告）.xlsx");
+
+        # for i in range(len(title)):
+        #     titleIndex = get_column_letter(startRow + 2 + i) + "1";
+        #     outSheet[titleIndex] = title[i];
+        # for j in range(len(rowList)):
+        #     handleNameIndex = get_column_letter(startRow) + str(j + 2);
+        #     titleNameIndex = get_column_letter(startRow + 1) + str(j + 2);
+        #     outSheet[handleNameIndex] = targetSheet["D" + str(rowList[j])].value;
+        #     outSheet[titleNameIndex] = getObjectName(col[0]);
+        #     for k in range(len(col)):
+        #         cellIndex = get_column_letter(startRow + 2 + k) + str(j + 2);
+        #         outSheet[cellIndex] = targetSheet[col[k] + str(rowList[j])].value;
+    outBook.save(OUTPUT_ROAD + "/" + "内部進捗（对比报告）.xlsx");
+
+#传入列号，遍历取得大标题的名字
+def getObjectName(colEn):
+    colNum = column_index_from_string(colEn);
+    while targetSheet[colEn + "1"].value == None:
+        colNum = colNum - 1;
+        colEn = get_column_letter(colNum);
+    objectName =  "".join((targetSheet[colEn + "1"].value).split());
+    return objectName.split("（")[0];
+
+# contrastCol = getContrastCol();
+# oList = getData(dataCol[1],sourceSheet);
+# cList = getData(dataCol[1],targetSheet);
+# differRow = markTarget(contrastData(oList,cList));
+# writeToXL(differRow,0);
+
+differNum = 0;
+
+#主程序
+def main():
+    contrastCol = getContrastCol();
+    listLength = 0;
+    global differNum;
+    for colTup in contrastCol:
+        oList = getData(colTup,sourceSheet);
+        cList = getData(colTup,targetSheet);
+        differRow = markTarget(contrastData(oList,cList));
+        if len(differRow) != 0:
+            writeToXL(differRow, colTup, getTitle(colTup), listLength);
+            listLength = len(differRow) * 2 + listLength;
+        differNum = differNum + len(differRow);
+    en = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
+    for e in en:
+        outSheet.column_dimensions[e].width = 25;
+    outBook.save(OUTPUT_ROAD + "/" + "内部進捗（对比报告）.xlsx");
 
 
-dataCol = getDataCol();
-oList = getData(dataCol[1],sourceSheet);
-cList = getData(dataCol[1],targetSheet);
-differRow = markTarget(contrastData(oList,cList));
-writeToXL(differRow,1);
+#GUI界面
+def startRun():
+    SOURCE_READROAD = sourceE.get();
+    TARGET_READROAD = targetE.get();
+    OUTPUT_ROAD = outputE.get();
+    if os.path.exists(SOURCE_READROAD) and os.path.exists(TARGET_READROAD) and os.path.exists(OUTPUT_ROAD):
+        main();
+        messagebox.showinfo("message","运行完成\n" + "共抽出" + str(differNum) + "条数据");
+        os._exit(0);
+    else:
+        messagebox.showwarning("Warning","路径不存在!");
+    return ;
+
+
+def selectSource():
+    sourceRoad = filedialog.askopenfilename();
+    sourceE.set(sourceRoad);
+
+def selectTarget():
+    targetRoad = filedialog.askopenfilename();
+    targetE.set(targetRoad);
+
+def selectOutput():
+    outputRoad = askdirectory();
+    outputE.set(outputRoad);
+
+root = Tk();
+root.title("对比工具");
+root.geometry("550x150+400+300")
+
+sourceE = StringVar();
+sourceFile = Label(root, text = "原始文件路径").grid(row = 0, column = 1);
+sourceEntry = Entry(root, width = 55, textvariable = sourceE ).grid(row = 0, column = 3);
+sourceButton = Button(root, text = "选择",width = 10, height = 1, command = selectSource).grid(row = 0, column = 5);
+
+targetE = StringVar();
+targetFile = Label(root, text = "目标文件路径").grid(row = 1, column = 1);
+targetEntry = Entry(root, width = 55, textvariable = targetE).grid(row = 1, column = 3);
+targetButton = Button(root, text = "选择",width = 10, height = 1, command = selectTarget).grid(row = 1, column = 5);
+
+outputE = StringVar();
+outputFile = Label(root, text = "输出文件路径").grid(row = 2, column = 1);
+outputEntry = Entry(root, width = 55, textvariable = outputE).grid(row = 2, column = 3);
+outputButton = Button(root, text = "选择",width = 10, height = 1, command = selectOutput).grid(row = 2, column = 5);
+
+startButton = Button(root, text = "开始",width = 10, height = 1, command = startRun).grid(row = 3, column = 3);
+
+root.mainloop();
+
+
+
+
+
+
+
+
+
 
 
 # originalBook = xlrd.open_workbook(ORIGINAL_READROAD);
